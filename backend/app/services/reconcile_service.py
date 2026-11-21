@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.db import connect
+from app.services import consistency
 from app.services.gate import FOLD_RULE, require_period_open_tx
 
 
@@ -39,7 +40,12 @@ def run_align(period_id: str) -> dict:
         }
         keys = sorted(set(est) | set(act))
         if not keys:
-            raise HTTPException(400, "该账期无估抄/实抄可对齐")
+            # 扫空必须可解释：申报本期却折入他期的正式行，指明去向账期
+            raise HTTPException(
+                400,
+                f"账期 {period_id} 无正式估抄/实抄行可对齐"
+                + consistency.explain_empty_period(conn, period_id),
+            )
 
         # expire prior open batches for period
         conn.execute(

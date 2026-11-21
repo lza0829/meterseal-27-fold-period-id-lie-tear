@@ -47,6 +47,8 @@
 declared_periods）→ 总览期计数（`/overview.period_counts`）→ 按期列表
 （`/estimates`、`/actuals`、`/receipts` 的 period_id 过滤）。
 **禁止只改列表展示账期**——落期必须落在正式表，全链路同源。
+各链「落期冲突听谁」的一致性架构（以正式行为准、回执可重放）见
+[period-consistency.md](period-consistency.md)。
 
 ## 核对
 

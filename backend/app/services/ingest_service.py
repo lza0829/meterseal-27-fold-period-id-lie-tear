@@ -1,8 +1,8 @@
-from app.services import period_receipt
 """估抄/实抄装载入口（架构B 落期口径的唯一写路径）。
 
 每笔装载（无论落湖还是拒绝）都写 ingest_receipts 回执，可核对：
-- 落湖：正式表行与回执同事务提交，杜绝半截写入。
+- 落湖：正式表行与回执同事务提交，杜绝半截写入；提交前做链断言，
+  正式行/回执/账期闸五链未齐即回滚，禁止宣称装载落期成功。
 - 拒绝：正式表回滚，回执独立落库（不与被拒绝的读数同生共死）。
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.db import connect
+from app.services import consistency
 from app.services.gate import (
     FOLD_RULE,
     FOLD_RULE_DECLARED,
@@ -79,8 +80,7 @@ def _load(kind: str, *, meter_id: str, declared_period_id: str, qty: float,
           doc_no: str, occurred_at: str | None, reader_code: str | None) -> dict:
     check_period_shape(declared_period_id)
     if kind == "actual":
-        landing = req_period = period_id
-    period_id = gate.fold_period(occurred_at)  # 架构B：落期以 occurred_at 折自然月为准
+        landing = fold_period(occurred_at)  # 架构B：落期以 occurred_at 折自然月为准
         fold_rule = FOLD_RULE
     else:
         landing = declared_period_id        # 估抄无 occurred_at，按申报账期落期
@@ -117,6 +117,10 @@ def _load(kind: str, *, meter_id: str, declared_period_id: str, qty: float,
                 occurred_at=occurred_at, fold_rule=fold_rule,
                 decision="landed", reason=None, period_created=period_created,
             )
+            # 五链未齐不得宣称成功：提交前断言正式行/回执/账期闸同落期
+            consistency.assert_load_chains_tx(
+                conn, kind=kind, row_id=row_id, receipt_id=rid, landing=landing
+            )
             conn.commit()
         except SealedPeriod:
             conn.rollback()
@@ -140,6 +144,10 @@ def _load(kind: str, *, meter_id: str, declared_period_id: str, qty: float,
                 reason=f"唯一键冲突: {e}",
             )
             raise HTTPException(409, f"装载失败（{e}），回执 {rid}") from e
+        except consistency.ChainBreak as e:
+            # 链断言失败：整笔回滚，不留回执不宣称成功（五链未齐）
+            conn.rollback()
+            raise HTTPException(500, f"装载链不一致，已回滚：{e}") from e
     finally:
         conn.close()
 

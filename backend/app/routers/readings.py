@@ -1,10 +1,9 @@
 from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from app.services import period_receipt
 
 from app.db import connect
-from app.services import ingest_service
+from app.services import consistency, ingest_service
 
 router = APIRouter(tags=["readings"])
 
@@ -108,8 +107,9 @@ def list_receipts(
 
 @router.get("/period-receipt")
 def last_period_receipt():
+    """最近一条装载回执 + 由正式表重放的落期（两值必须一致，可核对）。"""
     conn = connect()
     try:
-        return period_receipt.last_receipt(conn)
+        return consistency.last_receipt_replay(conn)
     finally:
         conn.close()

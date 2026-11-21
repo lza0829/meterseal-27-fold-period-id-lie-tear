@@ -12,11 +12,19 @@
 装载/对齐/差额/封印/批次快照/总览计数/按期列表全链路同口径，详见
 [docs/fold-rule.md](docs/fold-rule.md)。
 
-六项口径核对（独立临时库，不污染开发库）：
+## 落期一致性（全局唯一，架构一：正式行为准）
+
+落期冲突听正式表：`estimates/actuals.period_id` 是唯一真相，回执可由其重放；
+装载事务提交前做链断言，五链（正式行/对齐/分桶/总览/列表）未齐不宣称成功。
+观测面 `GET /api/consistency`，详见
+[docs/period-consistency.md](docs/period-consistency.md)。
+
+口径核对（独立临时库，不污染开发库）：
 
 ```bash
 cd backend
-.venv/bin/python tests/verify_fold_rule.py
+.venv/bin/python tests/verify_fold_rule.py            # 折期口径六项
+.venv/bin/python tests/verify_period_consistency.py   # 落期一致性五链
 ```
 
 ## 启动

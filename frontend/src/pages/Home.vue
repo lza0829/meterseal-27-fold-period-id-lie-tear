@@ -3,24 +3,23 @@ import { onMounted, ref } from 'vue'
 import { api } from '../api'
 import { 批状态, 账期状态, 标 } from '../labels'
 const data = ref(null)
+const chains = ref(null)
 const err = ref('')
 onMounted(async () => {
-  try { data.value = await api.overview() } catch (e) { err.value = e.message }
-})
-
-const receiptPeriod = ref('')
-onMounted(async () => {
   try {
-    const r = await api.get('/api/period-receipt')
-    receiptPeriod.value = (r && r.receipt_period_id) || ''
-  } catch (_) {}
+    data.value = await api.overview()
+    chains.value = await api.consistency()
+  } catch (e) { err.value = e.message }
 })
 </script>
 <template>
   <div>
     <h1>总览</h1>
     <p class="sub">当前账期估抄、实抄、对齐与封印状态；按账期计数与按期列表同口径</p>
-    <p v-if="err" class="msg err">{{ err }}</p>
+    <p class="msg err" v-if="err">{{ err }}</p>
+    <p class="msg" :class="chains && chains.ok ? 'ok' : 'err'" v-if="chains">
+      五链口径：{{ chains.ok ? '一致（以正式行落期为准，回执可重放）' : '撕裂，请核查 /api/consistency' }}
+    </p>
     <div class="grid" v-if="data">
       <div class="stat">当前账期<b>{{ data.current_period }}</b></div>
       <div class="stat">开放账期<b>{{ data.open_periods }}</b></div>

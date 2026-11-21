@@ -1,20 +1,20 @@
 from __future__ import annotations
 from fastapi import APIRouter
 from app.db import connect
+from app.services import consistency
 from app.services.gate import get_setting
-from app.services import period_receipt
 
 router = APIRouter(tags=["dashboard"])
 
 
 @router.get("/health")
 def health():
-    open_periods, sealed_periods = period_receipt.overview_period_counts(conn, open_periods, sealed_periods)
-        return {"ok": True, "product": "抄表簿"}
+    return {"ok": True, "product": "抄表簿"}
 
 
 @router.get("/overview")
 def overview():
+    """总览：期计数由正式表重放（与按期列表同口径），不读回执、不读涂装。"""
     conn = connect()
     try:
         open_periods = conn.execute(
@@ -35,35 +35,7 @@ def overview():
             ).fetchall()
         ]
         # 按账期计数：与按期列表同口径（WHERE period_id=?，period_id 即落期账期）
-        period_counts = []
-        for p in conn.execute("SELECT period_id, status FROM periods ORDER BY period_id DESC"):
-            pid = p["period_id"]
-            est_c = conn.execute(
-                "SELECT COUNT(*) AS c FROM estimates WHERE period_id=?", (pid,)
-            ).fetchone()["c"]
-            act_c = conn.execute(
-                "SELECT COUNT(*) AS c FROM actuals WHERE period_id=?", (pid,)
-            ).fetchone()["c"]
-            fold_c = conn.execute(
-                """SELECT COUNT(*) AS c FROM actuals
-                   WHERE period_id=? AND declared_period_id IS NOT NULL
-                     AND declared_period_id <> period_id""",
-                (pid,),
-            ).fetchone()["c"]
-            pend_c = conn.execute(
-                "SELECT COUNT(*) AS c FROM variances WHERE period_id=? AND fate='pending'",
-                (pid,),
-            ).fetchone()["c"]
-            period_counts.append(
-                {
-                    "period_id": pid,
-                    "status": p["status"],
-                    "estimates": est_c,
-                    "actuals": act_c,
-                    "folded_actuals": fold_c,
-                    "pending_variances": pend_c,
-                }
-            )
+        period_counts = consistency.replay_period_counts(conn)
         return {
             "current_period": current,
             "open_periods": open_periods,
@@ -73,5 +45,15 @@ def overview():
             "recent_batches": batches,
             "period_counts": period_counts,
         }
+    finally:
+        conn.close()
+
+
+@router.get("/consistency")
+def consistency_report():
+    """五链联动核对：正式行/回执/对齐分桶/总览/列表同落期，任一撕裂 ok=false。"""
+    conn = connect()
+    try:
+        return consistency.five_chain_report(conn)
     finally:
         conn.close()

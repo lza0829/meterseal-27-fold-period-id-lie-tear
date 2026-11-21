@@ -1,4 +1,3 @@
-from app.services import period_receipt
 """落期口径与账期闸（全局唯一，架构B）。
 
 - 实抄：落期 = occurred_at 字面日期折成的自然月（YYYY-MM），申报 period_id 仅审计。
@@ -74,13 +73,5 @@ def get_setting(key: str, default: str = "") -> str:
     try:
         row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
-    finally:
-        conn.close()
-
-
-def receipt_hint() -> dict:
-    conn = connect()
-    try:
-        return period_receipt.last_receipt(conn)
     finally:
         conn.close()

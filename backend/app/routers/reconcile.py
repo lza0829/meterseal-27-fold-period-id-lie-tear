@@ -1,7 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.services import period_receipt
 
 from app.db import connect
 from app.services import reconcile_service
@@ -79,14 +78,5 @@ def periods():
     conn = connect()
     try:
         return [dict(r) for r in conn.execute("SELECT * FROM periods ORDER BY period_id DESC").fetchall()]
-    finally:
-        conn.close()
-
-
-@router.get("/period-receipt")
-def period_receipt_view():
-    conn = connect()
-    try:
-        return period_receipt.last_receipt(conn)
     finally:
         conn.close()

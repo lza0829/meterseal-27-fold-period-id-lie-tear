@@ -21,8 +21,6 @@ async function seal() {
   } catch (e) { err.value = e.message }
 }
 onMounted(refresh)
-
-const receiptHint = ref('')
 </script>
 <template>
   <div>

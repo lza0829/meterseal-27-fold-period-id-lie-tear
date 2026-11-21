@@ -17,6 +17,7 @@ async function req(path, opts = {}) {
 
 export const api = {
   overview: () => req('/overview'),
+  consistency: () => req('/consistency'),
   meters: () => req('/meters'),
   estimates: (periodId) => req('/estimates' + (periodId ? `?period_id=${periodId}` : '')),
   actuals: (periodId) => req('/actuals' + (periodId ? `?period_id=${periodId}` : '')),

@@ -1,4 +1,6 @@
 from __future__ import annotations
+import uuid
+
 from app.db import connect
 
 # 架构B（全局唯一口径）：实抄按 occurred_at 折自然月落期；
@@ -88,6 +90,60 @@ def _add_column_if_missing(conn, table: str, column: str, ddl: str) -> None:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
+def _purge_paint_keys(conn) -> None:
+    """清除旧涂装层残留（架构二残余）：总览/列表只允许由正式表重放。"""
+    conn.execute(
+        "DELETE FROM settings WHERE key IN ('load_period_receipt','period_list_paint')"
+        " OR key LIKE 'period_count_paint:%'"
+    )
+
+
+def _backfill_receipts(conn) -> None:
+    """回执由正式行重放回填（以正式行 period_id 为准的直接体现）。
+
+    历史正式行若缺 landed 回执，按正式表内容补一条可核对的回执：
+    落期=正式行 period_id，申报期=declared_period_id（估抄无申报列，取落期）。
+    幂等：同 kind/meter/doc 已有 landed 回执则跳过。
+    """
+    for r in conn.execute("SELECT * FROM estimates").fetchall():
+        exists = conn.execute(
+            """SELECT 1 FROM ingest_receipts
+               WHERE kind='estimate' AND meter_id=? AND doc_no=? AND decision='landed'""",
+            (r["meter_id"], r["doc_no"]),
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO ingest_receipts(receipt_id,kind,doc_no,meter_id,declared_period_id,
+               landing_period_id,occurred_at,fold_rule,decision,reason,period_created,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "R-" + uuid.uuid4().hex[:10], "estimate", r["doc_no"], r["meter_id"],
+                r["period_id"], r["period_id"], None, "declared", "landed", None, 0,
+                r["loaded_at"],
+            ),
+        )
+    for r in conn.execute("SELECT * FROM actuals").fetchall():
+        exists = conn.execute(
+            """SELECT 1 FROM ingest_receipts
+               WHERE kind='actual' AND meter_id=? AND doc_no=? AND decision='landed'""",
+            (r["meter_id"], r["doc_no"]),
+        ).fetchone()
+        if exists:
+            continue
+        declared = r["declared_period_id"] or r["period_id"]
+        conn.execute(
+            """INSERT INTO ingest_receipts(receipt_id,kind,doc_no,meter_id,declared_period_id,
+               landing_period_id,occurred_at,fold_rule,decision,reason,period_created,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "R-" + uuid.uuid4().hex[:10], "actual", r["doc_no"], r["meter_id"],
+                declared, r["period_id"], r["occurred_at"],
+                r["fold_rule"] or "occurred_at", "landed", None, 0, r["loaded_at"],
+            ),
+        )
+
+
 def _migrate(conn) -> None:
     """老库补齐架构B列；申报账期回填为当期落期（历史数据两值一致）。"""
     _add_column_if_missing(conn, "actuals", "declared_period_id", "declared_period_id TEXT")
@@ -96,6 +152,9 @@ def _migrate(conn) -> None:
     _add_column_if_missing(conn, "reconcile_batches", "fold_rule", "fold_rule TEXT NOT NULL DEFAULT 'occurred_at'")
     _add_column_if_missing(conn, "reconcile_batches", "folded_count", "folded_count INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "reconcile_batches", "declared_periods", "declared_periods TEXT NOT NULL DEFAULT '[]'")
+    # 落期一致性收口：清涂装残留；历史正式行的回执由正式表重放补齐
+    _purge_paint_keys(conn)
+    _backfill_receipts(conn)
 
 
 def seed_if_empty() -> None:
@@ -158,6 +217,8 @@ def seed_if_empty() -> None:
             "INSERT INTO settings(key,value) VALUES ('product_title','抄表簿')"
         )
         # 界面不露英文：表类型仍存 water/electric 码，前端映射为中文
+        # 种子正式行同样由正式表重放出回执（五链从空库起即同源）
+        _backfill_receipts(conn)
         conn.commit()
     finally:
         conn.close()
